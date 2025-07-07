@@ -1,92 +1,81 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from IPython.display import display
-import ipywidgets as widgets
-from google.colab import files
-from IPython.display import clear_output
 import matplotlib.pyplot as plt
 
-# Subir archivo de datos
-print("Sube el archivo de datos (muestras):")
-uploaded = files.upload()
-filename_datos = list(uploaded.keys())[0]
-df_datos = pd.read_excel(filename_datos) if filename_datos.endswith('.xlsx') else pd.read_csv(filename_datos)
+st.set_page_config(page_title="Z-score con incertidumbre", layout="wide")
 
-# Subir archivo de referencias
-print("Sube el archivo de referencias:")
-uploaded_ref = files.upload()
-filename_ref = list(uploaded_ref.keys())[0]
-df_ref = pd.read_excel(filename_ref) if filename_ref.endswith('.xlsx') else pd.read_csv(filename_ref)
+st.title("📊 Diagrama de Control - Z-score con Incertidumbre Combinada")
 
-# Verificar estructura
-print("\nDatos cargados:")
-display(df_datos.head())
-print("\nReferencias cargadas:")
-display(df_ref)
+# Cargar archivos
+datos_file = st.file_uploader("📥 Carga el archivo de datos (muestras)", type=["csv", "xlsx"])
+ref_file = st.file_uploader("📥 Carga el archivo de referencia (valores certificados)", type=["csv", "xlsx"])
 
-# Obtener lista de elementos
-columnas = [col for col in df_datos.columns if not col.startswith("u_") and col != "Muestra"]
+if datos_file and ref_file:
+    # Leer archivos
+    df_datos = pd.read_excel(datos_file) if datos_file.name.endswith('xlsx') else pd.read_csv(datos_file)
+    df_ref = pd.read_excel(ref_file) if ref_file.name.endswith('xlsx') else pd.read_csv(ref_file)
 
-# Crear selector
-elemento_dropdown = widgets.Dropdown(options=columnas, description='Elemento:')
-boton_graficar = widgets.Button(description="Graficar Z")
+    # Selección de elemento
+    columnas_elementos = [col for col in df_datos.columns if not col.startswith("u_") and col != "Muestra"]
+    elemento = st.selectbox("🧪 Selecciona el elemento a graficar:", columnas_elementos)
 
-display(elemento_dropdown, boton_graficar)
+    if elemento:
+        u_col = f"u_{elemento}"
 
-def graficar_z_multiref(b):
-
-    clear_output(wait=True)  # Limpiar antes de graficar
-    display(elemento_dropdown, boton_graficar)
-
-
-    elemento = elemento_dropdown.value
-    u_col = f"u_{elemento}"
-
-    if u_col not in df_datos.columns:
-        print(f"No se encontró la columna '{u_col}'")
-        return
-
-    muestras = df_datos["Muestra"]
-    x = df_datos[elemento]
-    u_x = df_datos[u_col]
-
-    # Crear listas para los valores de referencia y sus incertidumbres por muestra
-    mu_list = []
-    u_mu_list = []
-
-    for muestra in muestras:
-        fila_ref = df_ref[df_ref["Muestra"] == muestra]
-        if fila_ref.empty:
-            print(f"No se encontró referencia para la muestra '{muestra}'")
-            mu_list.append(np.nan)
-            u_mu_list.append(np.nan)
+        if u_col not in df_datos.columns or u_col not in df_ref.columns:
+            st.error(f"No se encontró la columna de incertidumbre: '{u_col}' en ambos archivos.")
         else:
-            mu_list.append(float(fila_ref[elemento].values[0]))
-            u_mu_list.append(float(fila_ref[u_col].values[0]))
+            # Extraer datos
+            muestras = df_datos["Muestra"]
+            x = df_datos[elemento]
+            u_x = df_datos[u_col]
 
-    mu_arr = np.array(mu_list)
-    u_mu_arr = np.array(u_mu_list)
+            # Buscar referencias por muestra
+            mu = []
+            u_mu = []
 
-    # Calcular Z-score
-    z = (x - mu_arr) / np.sqrt(u_x**2 + u_mu_arr**2)
+            for muestra in muestras:
+                ref = df_ref[df_ref["Muestra"] == muestra]
+                if not ref.empty:
+                    mu.append(ref[elemento].values[0])
+                    u_mu.append(ref[u_col].values[0])
+                else:
+                    mu.append(np.nan)
+                    u_mu.append(np.nan)
 
-    # Graficar
-    plt.figure(figsize=(10, 5))
-    plt.plot(muestras, z, marker='o', linestyle='-', color='blue', label='Z')
-    plt.axhline(0, color='black', linestyle='--')
-    plt.axhline(2, color='orange', linestyle='--', label='±2')
-    plt.axhline(-2, color='orange', linestyle='--')
-    plt.axhline(3, color='red', linestyle='--', label='±3')
-    plt.axhline(-3, color='red', linestyle='--')
-    plt.xticks(rotation=45)
-    plt.xlabel("Muestra")
-    plt.ylabel("Z")
-    plt.title(f"Z-score para {elemento} con múltiples valores de referencia")
-    plt.legend()
-    plt.grid(True)
-    plt.tight_layout()
-    plt.show()
+            mu = np.array(mu, dtype='float64')
+            u_mu = np.array(u_mu, dtype='float64')
 
-# Conectar el botón
-boton_graficar.on_click(graficar_z_multiref)
+            # Calcular Z-score
+            z = (x - mu) / np.sqrt(u_x**2 + u_mu**2)
+
+            # Mostrar tabla de resultados
+            resultado = pd.DataFrame({
+                "Muestra": muestras,
+                f"{elemento}": x,
+                f"u_{elemento}": u_x,
+                "Valor_ref": mu,
+                "u_ref": u_mu,
+                "Z-score": z
+            })
+
+            st.dataframe(resultado)
+
+            # Gráfico
+            st.subheader("📈 Gráfico del Z-score")
+            fig, ax = plt.subplots(figsize=(10, 5))
+            ax.plot(muestras, z, marker='o', linestyle='-', color='blue', label='Z')
+            ax.axhline(0, color='black', linestyle='--')
+            ax.axhline(2, color='orange', linestyle='--', label='±2')
+            ax.axhline(-2, color='orange', linestyle='--')
+            ax.axhline(3, color='red', linestyle='--', label='±3')
+            ax.axhline(-3, color='red', linestyle='--')
+            ax.set_xlabel("Muestra")
+            ax.set_ylabel("Z-score")
+            ax.set_title(f"Z-score para {elemento}")
+            ax.set_xticks(np.arange(len(muestras)))
+            ax.set_xticklabels(muestras, rotation=45)
+            ax.legend()
+            ax.grid(True)
+            st.pyplot(fig)
