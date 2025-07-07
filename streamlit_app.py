@@ -1,11 +1,11 @@
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
 import numpy as np
 from IPython.display import display
 import ipywidgets as widgets
 from google.colab import files
 from IPython.display import clear_output
+import matplotlib.pyplot as plt
 
 # Subir archivo de datos
 print("Sube el archivo de datos (muestras):")
